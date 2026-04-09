@@ -14,11 +14,13 @@ pub struct Session {
     pub id: String,
     pub task: String,
     pub agent_type: String,
+    pub working_dir: PathBuf,
     pub state: SessionState,
     pub pid: Option<u32>,
     pub worktree: Option<WorktreeInfo>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub last_heartbeat_at: DateTime<Utc>,
     pub metrics: SessionMetrics,
 }
 
@@ -27,6 +29,7 @@ pub enum SessionState {
     Pending,
     Running,
     Idle,
+    Stale,
     Completed,
     Failed,
     Stopped,
@@ -38,6 +41,7 @@ impl fmt::Display for SessionState {
             SessionState::Pending => write!(f, "pending"),
             SessionState::Running => write!(f, "running"),
             SessionState::Idle => write!(f, "idle"),
+            SessionState::Stale => write!(f, "stale"),
             SessionState::Completed => write!(f, "completed"),
             SessionState::Failed => write!(f, "failed"),
             SessionState::Stopped => write!(f, "stopped"),
@@ -59,12 +63,21 @@ impl SessionState {
             ) | (
                 SessionState::Running,
                 SessionState::Idle
+                    | SessionState::Stale
                     | SessionState::Completed
                     | SessionState::Failed
                     | SessionState::Stopped
             ) | (
                 SessionState::Idle,
                 SessionState::Running
+                    | SessionState::Stale
+                    | SessionState::Completed
+                    | SessionState::Failed
+                    | SessionState::Stopped
+            ) | (
+                SessionState::Stale,
+                SessionState::Running
+                    | SessionState::Idle
                     | SessionState::Completed
                     | SessionState::Failed
                     | SessionState::Stopped
@@ -77,6 +90,7 @@ impl SessionState {
         match value {
             "running" => SessionState::Running,
             "idle" => SessionState::Idle,
+            "stale" => SessionState::Stale,
             "completed" => SessionState::Completed,
             "failed" => SessionState::Failed,
             "stopped" => SessionState::Stopped,
@@ -94,9 +108,44 @@ pub struct WorktreeInfo {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionMetrics {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
     pub tokens_used: u64,
     pub tool_calls: u64,
     pub files_changed: u32,
     pub duration_secs: u64,
     pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMessage {
+    pub id: i64,
+    pub from_session: String,
+    pub to_session: String,
+    pub content: String,
+    pub msg_type: String,
+    pub read: bool,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileActivityEntry {
+    pub session_id: String,
+    pub action: FileActivityAction,
+    pub path: String,
+    pub summary: String,
+    pub diff_preview: Option<String>,
+    pub patch_preview: Option<String>,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FileActivityAction {
+    Read,
+    Create,
+    Modify,
+    Move,
+    Delete,
+    Touch,
 }
